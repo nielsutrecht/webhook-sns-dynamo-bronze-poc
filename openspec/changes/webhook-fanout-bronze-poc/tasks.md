@@ -57,7 +57,7 @@
 
 ## 9. End-to-End Validation
 
-- [ ] 9.1 Deploy stack with no-op transform Lambda; invoke Webhook Lambda with sample fixture; verify records reach S3 under correct Hive prefix
-- [ ] 9.2 Swap in Pseudonymizer Lambda; invoke again; verify hashed fields and dropped fields
-- [ ] 9.3 Invoke with a Transaction missing `occurredAt`; verify record appears in `errors/` prefix
-- [ ] 9.4 Verify raw Transaction appears in DynamoDB with all fields intact
+- [x] 9.1 Deploy stack with no-op transform Lambda; invoke Webhook Lambda with sample fixture; verify records reach S3 under correct Hive prefix
+- [x] 9.2 Swap in Pseudonymizer Lambda; invoke again; verify hashed fields and dropped fields
+- [x] 9.3 Invoke with a Transaction missing `occurredAt`; verify record appears in `errors/` prefix
+- [x] 9.4 Verify raw Transaction appears in DynamoDB with all fields intact
