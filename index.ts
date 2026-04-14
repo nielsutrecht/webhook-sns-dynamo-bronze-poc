@@ -269,9 +269,9 @@ const firehoseStream = new aws.kinesis.FirehoseDeliveryStream("bronze-stream", {
     // Error prefix (task 8.5)
     errorOutputPrefix: "errors/",
 
-    // Buffer: 60s / 5MB (task 8.6)
+    // Buffer: 60s / 64MB — dynamic partitioning requires minimum 64MB (task 8.6)
     bufferingInterval: 60,
-    bufferingSize: 5,
+    bufferingSize: 64,
 
     // Dynamic partitioning must be enabled alongside processing (task 8.3)
     dynamicPartitioningConfiguration: { enabled: true },
