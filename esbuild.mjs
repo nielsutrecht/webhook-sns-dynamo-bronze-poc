@@ -4,6 +4,7 @@ const handlers = [
   { entry: "src/webhook-publisher/handler.ts", out: "dist/webhook-publisher.js" },
   { entry: "src/dynamo-subscriber/handler.ts", out: "dist/dynamo-subscriber.js" },
   { entry: "src/firehose-transform/handler.ts", out: "dist/firehose-transform.js" },
+  { entry: "src/orchestrator/handler.ts", out: "dist/orchestrator.js" },
 ];
 
 for (const { entry, out } of handlers) {

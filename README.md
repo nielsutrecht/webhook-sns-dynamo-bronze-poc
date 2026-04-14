@@ -20,11 +20,21 @@ flowchart LR
         DB[("DynamoDB\nraw transactions")]
     end
 
-    subgraph S3 path
+    subgraph Bronze path
         FH["Kinesis Data Firehose\nbronze-stream"]
         TL["Transform Lambda\nfirehose-transform\n(pseudonymize)"]
-        S3[("S3\nevents/year=…/month=…/day=…/\nbronze JSON")]
+        BRONZE[("S3 Bronze\nevents/year=…/month=…/day=…/\nNDJSON")]
         ERR[("S3\nerrors/")]
+    end
+
+    subgraph Silver & Gold path
+        NOTIF["S3 Event Notification"]
+        TSQS["SQS Queue\n+ DLQ"]
+        OL["Orchestrator Lambda\n(Athena SQL)"]
+        SILVER[("S3 Silver\nIceberg\ndeduped transactions")]
+        GOLD[("S3 Gold\nIceberg\n3 aggregates")]
+        ATHENA["Athena\nworkgroup"]
+        GLUE["Glue\nData Catalog"]
     end
 
     CLI -->|"Transaction JSON"| WL
@@ -36,7 +46,14 @@ flowchart LR
     FH -->|"batch transform"| TL
     TL -->|"Ok"| FH
     TL -->|"ProcessingFailed"| ERR
-    FH -->|"NDJSON"| S3
+    FH -->|"NDJSON"| BRONZE
+    BRONZE -->|"ObjectCreated"| NOTIF
+    NOTIF --> TSQS
+    TSQS -->|"batchSize 1"| OL
+    OL -->|"MERGE on transactionId"| SILVER
+    OL -->|"DELETE + INSERT"| GOLD
+    OL <-->|"DDL + DML"| ATHENA
+    ATHENA <--> GLUE
 ```
 
 ### Components
@@ -50,7 +67,13 @@ flowchart LR
 | **DynamoDB** | Raw, unmodified event storage. Every field preserved. |
 | **Kinesis Data Firehose** | Buffers and batches events for the S3 path. Invokes the Transform Lambda inline before delivery. Uses dynamic partitioning to derive Hive-style S3 prefixes from `occurredAt`. |
 | **Transform Lambda** | Pseudonymizes each record: hashes PII fields, drops sensitive free-text, enforces required partition-key fields. |
-| **S3 (bronze)** | Pseudonymized events in NDJSON, partitioned by event date. Schema matches raw events. |
+| **S3 Bronze** | Pseudonymized events in NDJSON, partitioned by event date. Schema matches raw events. |
+| **S3 Event Notification + SQS** | Fires when Firehose delivers a new bronze file. Buffers notifications and triggers the Orchestrator Lambda one file at a time. |
+| **Orchestrator Lambda** | Runs Athena SQL to build silver and gold. On each invocation: registers the new bronze partition, MERGEs records into silver (dedup), then rebuilds all three gold aggregates. |
+| **S3 Silver** | Iceberg table of deduplicated pseudonymized transactions. Deduplication is enforced via `MERGE INTO … ON transactionId`. |
+| **S3 Gold** | Three Iceberg aggregate tables rebuilt from silver on every update: daily spend by account, daily transaction volume by type, daily net flow by account. |
+| **Glue Data Catalog** | Registers bronze (external JSON), silver (Iceberg), and gold (Iceberg) table schemas for Athena. |
+| **Athena Workgroup** | Executes all DDL and DML for the silver/gold pipeline. Engine v3 (required for Iceberg MERGE). Results scoped to a dedicated S3 bucket. |
 
 ## Pseudonymization
 

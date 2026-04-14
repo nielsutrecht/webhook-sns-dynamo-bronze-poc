@@ -16,6 +16,62 @@ const bronzeBucket = new aws.s3.Bucket("bronze-bucket", {
 export const bronzeBucketName = bronzeBucket.bucket;
 
 // ---------------------------------------------------------------------------
+// S3 — silver, gold, and Athena results buckets (tasks 1.1–1.3)
+// ---------------------------------------------------------------------------
+
+const silverBucket = new aws.s3.Bucket("silver-bucket", {
+  bucket: pulumi.interpolate`webhook-silver-${stackName}`,
+  forceDestroy: true,
+});
+
+export const silverBucketName = silverBucket.bucket;
+
+const goldBucket = new aws.s3.Bucket("gold-bucket", {
+  bucket: pulumi.interpolate`webhook-gold-${stackName}`,
+  forceDestroy: true,
+});
+
+export const goldBucketName = goldBucket.bucket;
+
+const athenaResultsBucket = new aws.s3.Bucket("athena-results-bucket", {
+  bucket: pulumi.interpolate`webhook-athena-results-${stackName}`,
+  forceDestroy: true,
+});
+
+export const athenaResultsBucketName = athenaResultsBucket.bucket;
+
+// ---------------------------------------------------------------------------
+// Glue Data Catalog database (task 2.1)
+// ---------------------------------------------------------------------------
+
+const glueDatabase = new aws.glue.CatalogDatabase("glue-database", {
+  name: pulumi.interpolate`webhook_${stackName}`,
+});
+
+export const glueDatabaseName = glueDatabase.name;
+
+// ---------------------------------------------------------------------------
+// Athena workgroup (task 2.2)
+// ---------------------------------------------------------------------------
+
+const athenaWorkgroup = new aws.athena.Workgroup("athena-workgroup", {
+  name: pulumi.interpolate`webhook-${stackName}`,
+  configuration: {
+    engineVersion: {
+      selectedEngineVersion: "Athena engine version 3", // required for Iceberg MERGE
+    },
+    resultConfiguration: {
+      outputLocation: pulumi.interpolate`s3://${athenaResultsBucket.bucket}/`,
+    },
+    bytesScannedCutoffPerQuery: 1 * 1024 * 1024 * 1024, // 1 GB
+    enforceWorkgroupConfiguration: true,
+  },
+  forceDestroy: true,
+});
+
+export const athenaWorkgroupName = athenaWorkgroup.name;
+
+// ---------------------------------------------------------------------------
 // DynamoDB — raw transactions table (task 2.2)
 // ---------------------------------------------------------------------------
 
@@ -83,6 +139,56 @@ new aws.sns.TopicSubscription("dynamo-subscription", {
 
 export const dynamoQueueUrl = dynamoQueue.url;
 export const dynamoDlqUrl = dynamoDlq.url;
+
+// ---------------------------------------------------------------------------
+// SQS — silver trigger queue + DLQ (task 3.1)
+// ---------------------------------------------------------------------------
+
+const silverTriggerDlq = new aws.sqs.Queue("silver-trigger-dlq", {
+  name: pulumi.interpolate`silver-trigger-dlq-${stackName}`,
+  messageRetentionSeconds: 1209600, // 14 days
+});
+
+const silverTriggerQueue = new aws.sqs.Queue("silver-trigger-queue", {
+  name: pulumi.interpolate`silver-trigger-${stackName}`,
+  visibilityTimeoutSeconds: 300, // must be >= Lambda timeout
+  redrivePolicy: pulumi.jsonStringify({
+    deadLetterTargetArn: silverTriggerDlq.arn,
+    maxReceiveCount: 3,
+  }),
+});
+
+// Allow S3 to send messages to the silver trigger queue (task 3.3)
+new aws.sqs.QueuePolicy("silver-trigger-queue-policy", {
+  queueUrl: silverTriggerQueue.url,
+  policy: pulumi.jsonStringify({
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Effect: "Allow",
+        Principal: { Service: "s3.amazonaws.com" },
+        Action: "sqs:SendMessage",
+        Resource: silverTriggerQueue.arn,
+        Condition: { ArnLike: { "aws:SourceArn": bronzeBucket.arn } },
+      },
+    ],
+  }),
+});
+
+// S3 event notification: bronze bucket events/ prefix → silver trigger queue (task 3.2)
+new aws.s3.BucketNotification("bronze-bucket-notification", {
+  bucket: bronzeBucket.id,
+  queues: [
+    {
+      queueArn: silverTriggerQueue.arn,
+      events: ["s3:ObjectCreated:*"],
+      filterPrefix: "events/",
+    },
+  ],
+});
+
+export const silverTriggerQueueUrl = silverTriggerQueue.url;
+export const silverTriggerDlqUrl = silverTriggerDlq.url;
 
 // ---------------------------------------------------------------------------
 // Lambda execution role helper
@@ -311,4 +417,120 @@ new aws.sns.TopicSubscription("firehose-subscription", {
   protocol: "firehose",
   endpoint: firehoseStream.arn,
   subscriptionRoleArn: snsFirehoseRole.arn,
+});
+
+// ---------------------------------------------------------------------------
+// Orchestrator Lambda — IAM role (task 4.1)
+// ---------------------------------------------------------------------------
+
+const orchestratorRole = lambdaRole("orchestrator", [
+  {
+    name: "athena",
+    policy: pulumi.jsonStringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: [
+            "athena:StartQueryExecution",
+            "athena:GetQueryExecution",
+            "athena:GetQueryResults",
+            "athena:GetWorkGroup",
+          ],
+          Resource: pulumi.interpolate`arn:aws:athena:*:*:workgroup/webhook-${stackName}`,
+        },
+      ],
+    }),
+  },
+  {
+    name: "glue",
+    policy: pulumi.jsonStringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: [
+            "glue:GetDatabase",
+            "glue:GetTable",
+            "glue:CreateTable",
+            "glue:UpdateTable",
+            "glue:GetPartitions",
+            "glue:BatchCreatePartition",
+            "glue:GetPartition",
+          ],
+          Resource: "*",
+        },
+      ],
+    }),
+  },
+  {
+    name: "s3",
+    policy: pulumi.jsonStringify({
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Effect: "Allow",
+          Action: ["s3:GetBucketLocation", "s3:GetObject", "s3:ListBucket"],
+          Resource: [bronzeBucket.arn, pulumi.interpolate`${bronzeBucket.arn}/*`],
+        },
+        {
+          Effect: "Allow",
+          Action: ["s3:GetBucketLocation", "s3:GetObject", "s3:PutObject", "s3:ListBucket",
+                   "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+          Resource: [
+            silverBucket.arn, pulumi.interpolate`${silverBucket.arn}/*`,
+            goldBucket.arn, pulumi.interpolate`${goldBucket.arn}/*`,
+          ],
+        },
+        {
+          Effect: "Allow",
+          Action: ["s3:GetBucketLocation", "s3:GetObject", "s3:PutObject", "s3:ListBucket",
+                   "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+          Resource: [athenaResultsBucket.arn, pulumi.interpolate`${athenaResultsBucket.arn}/*`],
+        },
+      ],
+    }),
+  },
+  {
+    name: "sqs-receive",
+    policy: pulumi.jsonStringify({
+      Version: "2012-10-17",
+      Statement: [{
+        Effect: "Allow",
+        Action: ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+        Resource: silverTriggerQueue.arn,
+      }],
+    }),
+  },
+]);
+
+// ---------------------------------------------------------------------------
+// Orchestrator Lambda (task 4.2)
+// ---------------------------------------------------------------------------
+
+const orchestratorLambda = new aws.lambda.Function("orchestrator", {
+  name: pulumi.interpolate`orchestrator-${stackName}`,
+  runtime: aws.lambda.Runtime.NodeJS20dX,
+  handler: "index.handler",
+  role: orchestratorRole.arn,
+  code: lambdaCode("orchestrator.js"),
+  environment: {
+    variables: {
+      GLUE_DATABASE: glueDatabase.name,
+      ATHENA_WORKGROUP: athenaWorkgroup.name,
+      BRONZE_BUCKET: bronzeBucket.bucket,
+      SILVER_BUCKET: silverBucket.bucket,
+      GOLD_BUCKET: goldBucket.bucket,
+      RESULTS_BUCKET: athenaResultsBucket.bucket,
+    },
+  },
+  timeout: 300, // 5 min — Athena queries can take time; must match SQS visibility timeout
+  reservedConcurrentExecutions: 1, // serialise silver MERGE + gold rebuilds
+});
+
+// SQS event source mapping: silver-trigger → orchestrator (task 4.3)
+new aws.lambda.EventSourceMapping("orchestrator-sqs-trigger", {
+  eventSourceArn: silverTriggerQueue.arn,
+  functionName: orchestratorLambda.arn,
+  batchSize: 1,
 });
