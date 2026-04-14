@@ -1,0 +1,23 @@
+name: Gold Layer Overview
+
+sections:
+  - header: Daily Spend by Account
+    cards:
+      - name: Daily Spend by Account
+        query: daily_spend_by_account
+        display: table
+        width: full
+
+  - header: Daily Volume by Transaction Type
+    cards:
+      - name: Daily Volume by Type
+        query: daily_volume_by_type
+        display: table
+        width: full
+
+  - header: Daily Net Flow by Account
+    cards:
+      - name: Daily Net Flow by Account
+        query: daily_net_flow_by_account
+        display: table
+        width: full

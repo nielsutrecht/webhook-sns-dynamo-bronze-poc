@@ -37,6 +37,10 @@ flowchart LR
         GLUE["Glue\nData Catalog"]
     end
 
+    subgraph BI layer
+        MB["Metabase\nEC2 t3.small\n(auto-stop)"]
+    end
+
     CLI -->|"Transaction JSON"| WL
     WL -->|"sns:Publish"| SNS
     SNS -->|"SNS envelope"| SQS
@@ -54,6 +58,7 @@ flowchart LR
     OL -->|"DELETE + INSERT"| GOLD
     OL <-->|"DDL + DML"| ATHENA
     ATHENA <--> GLUE
+    GOLD -->|"Athena queries"| MB
 ```
 
 ### Components
@@ -74,6 +79,7 @@ flowchart LR
 | **S3 Gold** | Three Iceberg aggregate tables rebuilt from silver on every update: daily spend by account, daily transaction volume by type, daily net flow by account. |
 | **Glue Data Catalog** | Registers bronze (external JSON), silver (Iceberg), and gold (Iceberg) table schemas for Athena. |
 | **Athena Workgroup** | Executes all DDL and DML for the silver/gold pipeline. Engine v3 (required for Iceberg MERGE). Results scoped to a dedicated S3 bucket. |
+| **Metabase** | Self-hosted BI layer on EC2 t3.small. Connects to the gold Iceberg tables via Athena using an IAM instance profile (no static keys). Auto-stops after ~10 min idle via a CloudWatch alarm. |
 
 ## Pseudonymization
 
@@ -169,6 +175,64 @@ npm run generate -- --count 200 --concurrency 20
 
 # Dry-run to inspect generated payloads
 npm run generate -- --count 5 --dry-run
+```
+
+### Metabase
+
+#### First-time setup
+
+After `pulumi up`, Metabase installs on first boot (~3–5 min). Start it:
+
+```bash
+source .env && npm run metabase:start
+# Prints: Metabase is ready: http://1.2.3.4:3000
+```
+
+Then provision the Athena connection and dashboards:
+
+```bash
+export METABASE_URL=http://1.2.3.4:3000   # URL from metabase:start output
+export MB_ADMIN_EMAIL=admin@example.com
+export MB_ADMIN_PASSWORD=<choose-a-password>
+
+# Install Python deps (once)
+pip install -r metabase/requirements.txt
+
+# Optional: override stack-specific values
+export ATHENA_WORKGROUP=webhook-dev
+export ATHENA_RESULTS_BUCKET=s3://webhook-athena-results-dev/
+export GLUE_DATABASE=webhook_dev
+
+source .env && npm run metabase:setup
+```
+
+The setup script is idempotent — re-running it after a state loss is safe.
+
+#### Subsequent sessions
+
+```bash
+source .env && npm run metabase:start
+# Open the printed URL in your browser
+```
+
+The instance auto-stops after ~10 minutes of idle CPU (< 5%). Dashboards and
+the Athena connection survive stop/start cycles (stored on EBS).
+
+#### Stable URL (optional)
+
+By default, the public IP changes on each start. To get a stable URL, allocate
+an Elastic IP in the AWS console (or Pulumi) and associate it with the instance
+ID from `pulumi stack output metabaseInstanceId`. The per-hour cost is ~$0 when
+the instance is running and ~$0.005/hr when stopped.
+
+#### Restricting access
+
+The security group defaults to `0.0.0.0/0` on port 3000. To restrict to your
+IP:
+
+```bash
+pulumi config set developerCidr <your-ip>/32
+pulumi up
 ```
 
 ### Tear down

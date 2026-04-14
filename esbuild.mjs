@@ -5,6 +5,7 @@ const handlers = [
   { entry: "src/dynamo-subscriber/handler.ts", out: "dist/dynamo-subscriber.js" },
   { entry: "src/firehose-transform/handler.ts", out: "dist/firehose-transform.js" },
   { entry: "src/orchestrator/handler.ts", out: "dist/orchestrator.js" },
+  { entry: "src/metabase-stop/handler.ts", out: "dist/metabase-stop.js" },
 ];
 
 for (const { entry, out } of handlers) {

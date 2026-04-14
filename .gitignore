@@ -4,3 +4,6 @@ node_modules/
 *.js.map
 dist/
 .pulumi/
+.idea/
+__pycache__/
+*.pyc

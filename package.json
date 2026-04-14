@@ -6,10 +6,13 @@
   "scripts": {
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit",
-    "generate": "AWS_PROFILE=personal AWS_DEFAULT_REGION=eu-west-1 npx tsx scripts/generate.ts"
+    "generate": "AWS_PROFILE=personal AWS_DEFAULT_REGION=eu-west-1 npx tsx scripts/generate.ts",
+    "metabase:start": "AWS_PROFILE=personal AWS_DEFAULT_REGION=eu-west-1 bash scripts/metabase-start.sh",
+    "metabase:setup": "AWS_PROFILE=personal AWS_DEFAULT_REGION=eu-west-1 python3 -m metabase.setup"
   },
   "dependencies": {
     "@aws-sdk/client-athena": "^3.0.0",
+    "@aws-sdk/client-ec2": "^3.0.0",
     "@aws-sdk/client-dynamodb": "^3.0.0",
     "@aws-sdk/client-sns": "^3.0.0",
     "@aws-sdk/lib-dynamodb": "^3.0.0",
