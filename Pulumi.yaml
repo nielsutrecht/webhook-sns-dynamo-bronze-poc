@@ -1,0 +1,9 @@
+name: webhook-sns-dynamo-bronze-poc
+description: Webhook fan-out pipeline PoC — SNS to DynamoDB (raw) and S3 bronze (pseudonymized via Firehose)
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+config:
+  aws:region:
+    default: eu-west-1

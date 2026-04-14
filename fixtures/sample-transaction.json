@@ -1,0 +1,21 @@
+{
+  "transactionId": "a1b2c3d4-0000-0000-0000-000000000001",
+  "accountId": "acc_0001",
+  "customerId": "cus_0001",
+  "occurredAt": "2024-03-15T10:30:00Z",
+  "settledAt": "2024-03-15T10:30:00Z",
+  "amountCents": -4250,
+  "currency": "EUR",
+  "balanceAfterCents": 189000,
+  "balanceCurrency": "EUR",
+  "description": "Supermarket",
+  "transactionType": "PAYMENT",
+  "status": "settled",
+  "accountBic": "INGBNL2A",
+  "counterpartyName": "Rewe",
+  "counterpartyIban": "DE89370400440532013000",
+  "counterpartyBic": "INGBNL2A",
+  "bankReference": null,
+  "eventId": "e1f2a3b4-0000-0000-0000-000000000001",
+  "isInternal": false
+}

@@ -1,0 +1,23 @@
+{
+  "name": "webhook-sns-dynamo-bronze-poc",
+  "version": "0.1.0",
+  "description": "Webhook fan-out pipeline PoC",
+  "main": "index.ts",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pulumi/aws": "^6.0.0",
+    "@pulumi/pulumi": "^3.0.0",
+    "@aws-sdk/client-sns": "^3.0.0",
+    "@aws-sdk/client-dynamodb": "^3.0.0",
+    "@aws-sdk/lib-dynamodb": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.0.0"
+  }
+}
