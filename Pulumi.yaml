@@ -6,4 +6,4 @@ runtime:
     typescript: true
 config:
   aws:region:
-    default: eu-west-1
+    value: eu-west-1
